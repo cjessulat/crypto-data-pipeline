@@ -142,7 +142,9 @@ def main() -> None:
 
     ingest_monthly("spot_klines", symbols, start, end)
     ingest_monthly("perp_klines", symbols, start, end)
-    ingest_funding(symbols, start=f"{start}-01")
+    # Funding rewrites the whole per-symbol file, so it must ALWAYS pull
+    # full history -- never the incremental window, or we destroy the past.
+    ingest_funding(symbols, start="2019-09-01")
     # Binance only retains ~1 month of metrics/OI files. Nothing we can do.
     ingest_metrics(symbols, days_back=30)
 

@@ -1,19 +1,5 @@
 """
 The Parquet store. This is the ONLY thing your strategy code should read.
-
-Layout:
-    /opt/marketdata/parquet/<dataset>/symbol=<SYM>/<SYM>-<period>.parquet
-
-Why partition by symbol: every query you will ever write filters by symbol.
-Hive partitioning lets pyarrow skip files entirely instead of reading them.
-
-Why one file per period: makes incremental appends trivial and lets you
-re-download a single bad month without rebuilding the world.
-
-Invariants enforced on write:
-  - tz-aware UTC timestamps
-  - no duplicate (ts, symbol)
-  - sorted by ts
 """
 from __future__ import annotations
 
@@ -29,6 +15,47 @@ from . import config as cfg
 
 log = logging.getLogger(__name__)
 
+_TS = pa.timestamp("us", tz="UTC")
+
+SCHEMAS: dict[str, pa.Schema] = {
+    "spot_klines": pa.schema([
+        ("ts", _TS),
+        ("open", pa.float64()), ("high", pa.float64()),
+        ("low", pa.float64()), ("close", pa.float64()),
+        ("volume", pa.float64()), ("quote_volume", pa.float64()),
+        ("trades", pa.int64()),
+        ("taker_buy_base", pa.float64()), ("taker_buy_quote", pa.float64()),
+    ]),
+    "funding": pa.schema([
+        ("ts", _TS),
+        ("funding_rate", pa.float64()),
+        ("mark_price", pa.float64()),
+    ]),
+    "metrics": pa.schema([
+        ("ts", _TS),
+        ("sum_open_interest", pa.float64()),
+        ("sum_open_interest_value", pa.float64()),
+        ("count_toptrader_long_short_ratio", pa.float64()),
+        ("sum_toptrader_long_short_ratio", pa.float64()),
+        ("count_long_short_ratio", pa.float64()),
+        ("sum_taker_long_short_vol_ratio", pa.float64()),
+    ]),
+}
+SCHEMAS["perp_klines"] = SCHEMAS["spot_klines"]
+
+
+def _coerce(df: pd.DataFrame, dataset: str) -> pa.Table:
+    schema = SCHEMAS.get(dataset)
+    if schema is None:
+        return pa.Table.from_pandas(df, preserve_index=False)
+    for field in schema:
+        if field.name not in df.columns:
+            df[field.name] = pd.NA
+        elif field.name != "ts":
+            df[field.name] = pd.to_numeric(df[field.name], errors="coerce")
+    df = df[[f.name for f in schema]]
+    return pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+
 
 def _validate(df: pd.DataFrame, dataset: str) -> pd.DataFrame:
     if df.empty:
@@ -37,47 +64,36 @@ def _validate(df: pd.DataFrame, dataset: str) -> pd.DataFrame:
         raise ValueError(f"{dataset}: requires 'ts' and 'symbol' columns")
     if df["ts"].dt.tz is None:
         raise ValueError(f"{dataset}: ts must be tz-aware UTC")
-
     n0 = len(df)
     df = df.drop_duplicates(subset=["ts", "symbol"], keep="last")
     if len(df) != n0:
         log.warning("%s: dropped %d duplicate rows", dataset, n0 - len(df))
-
     return df.sort_values("ts").reset_index(drop=True)
 
 
 def write(df: pd.DataFrame, dataset: str, symbol: str, period: str) -> Path | None:
-    """Write one (dataset, symbol, period) partition. Overwrites in place."""
     df = _validate(df, dataset)
     if df.empty:
         return None
-
     out_dir = cfg.PARQUET_DIR / dataset / f"symbol={symbol}"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{symbol}-{period}.parquet"
-
-    # symbol is encoded in the partition path; don't duplicate it in the file
-    table = pa.Table.from_pandas(df.drop(columns=["symbol"]), preserve_index=False)
+    table = _coerce(df.drop(columns=["symbol"]), dataset)
     pq.write_table(table, path, compression="zstd")
     return path
 
 
-def read(
-    dataset: str,
-    symbols: list[str] | None = None,
-    start: str | None = None,
-    end: str | None = None,
-) -> pd.DataFrame:
-    """
-    Read from the store. This is your main query entrypoint.
-
-        df = store.read("perp_klines", ["BTCUSDT"], start="2023-01-01")
-    """
+def read(dataset, symbols=None, start=None, end=None) -> pd.DataFrame:
     root = cfg.PARQUET_DIR / dataset
     if not root.exists():
         raise FileNotFoundError(f"no data for dataset '{dataset}' at {root}")
 
-    dataset_obj = ds.dataset(root, format="parquet", partitioning="hive")
+    schema = SCHEMAS.get(dataset)
+    if schema is not None:
+        schema = schema.append(pa.field("symbol", pa.string()))
+
+    dataset_obj = ds.dataset(root, format="parquet", partitioning="hive",
+                             schema=schema)
 
     filt = None
     if symbols:
@@ -96,11 +112,9 @@ def read(
 
 
 def summary() -> pd.DataFrame:
-    """What's actually in the store. Run this after every ingest."""
     rows = []
     if not cfg.PARQUET_DIR.exists():
         return pd.DataFrame()
-
     for dset in sorted(p for p in cfg.PARQUET_DIR.iterdir() if p.is_dir()):
         for sym_dir in sorted(dset.glob("symbol=*")):
             files = list(sym_dir.glob("*.parquet"))
@@ -108,9 +122,8 @@ def summary() -> pd.DataFrame:
                 continue
             try:
                 d = ds.dataset(sym_dir, format="parquet").to_table(
-                    columns=["ts"]
-                ).to_pandas()
-            except Exception as e:  # noqa: BLE001
+                    columns=["ts"]).to_pandas()
+            except Exception as e:
                 log.warning("unreadable: %s (%s)", sym_dir, e)
                 continue
             rows.append({

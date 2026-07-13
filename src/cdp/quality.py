@@ -89,7 +89,16 @@ def run() -> pd.DataFrame:
     bad = rep[rep["completeness"] < 0.98]
     if not bad.empty:
         problems.append(f"{len(bad)} series <98% complete (gaps in history)")
-    stale = rep[(rep["dataset"] != "metrics") & (rep["stale_h"] > 48)]
+    # Staleness thresholds must match each feed's publication cadence, or
+    # the check cries wolf and you learn to ignore it -- which is worse
+    # than having no check at all.
+    #   klines : monthly bulk archive -> up to ~35 days behind, by design
+    #   funding: live REST API        -> should be <24h
+    #   metrics: daily bulk archive   -> should be <72h
+    MAX_STALE_H = {"spot_klines": 24*35, "perp_klines": 24*35,
+                   "funding": 24, "metrics": 72}
+    stale = rep[rep.apply(
+        lambda r: r["stale_h"] > MAX_STALE_H.get(r["dataset"], 48), axis=1)]
     if not stale.empty:
         problems.append(f"{len(stale)} series >48h stale (feed may be dead)")
     if rep["zeros"].sum() or rep["nans"].sum():
