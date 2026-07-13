@@ -32,8 +32,24 @@ BINANCE_VISION = "https://data.binance.vision"
 # SURVIVORSHIP WARNING: this is a hand-picked list of things that exist TODAY.
 # Backtests on it are biased. See docs before drawing conclusions.
 CORE_UNIVERSE = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "LTCUSDT",
+    # 26 crypto perps, 3+ years of history.
+    #
+    # EXCLUDES Binance's tokenized-equity perps (NVDA, MSTR, QQQ, INTC...).
+    # Their funding is driven by equity borrow demand, NOT crypto leverage
+    # demand -- a different mechanism. Including them would pollute the
+    # cross-section with instruments that do not share the effect we harvest.
+    #
+    # SURVIVORSHIP BIAS -- MEASURED, NOT HYPOTHETICAL:
+    # MATIC, FTM, EOS and MKR were all major perps, now DELISTED. That is ~9%
+    # of a hand-picked list, and there are surely more we never thought to
+    # name. Every result from this universe is an OPTIMISTIC UPPER BOUND: the
+    # strategy gets credit for dodging disasters it never actually faced.
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "LTCUSDT",
+    "DOTUSDT", "UNIUSDT", "ATOMUSDT", "ETCUSDT", "XLMUSDT",
+    "BCHUSDT", "FILUSDT", "NEARUSDT", "AAVEUSDT", "TRXUSDT",
+    "ICPUSDT", "ALGOUSDT", "VETUSDT", "THETAUSDT", "SNXUSDT",
+    "CRVUSDT",
 ]
 
 # ---------------------------------------------------------------------------
