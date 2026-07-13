@@ -1,0 +1,17 @@
+# NEVER commit data. Data lives on the VPS at /opt/marketdata only.
+*.parquet
+*.zip
+*.csv
+data/
+marketdata/
+raw/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# secrets - if you ever add API keys, they go in .env and NEVER in git
+.env
+*.key
