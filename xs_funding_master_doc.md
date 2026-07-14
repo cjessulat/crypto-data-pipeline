@@ -1,270 +1,276 @@
 # Cross-Sectional Funding Strategy — Master Document
 
-**Status:** Research complete on v2. Not deployed. Three material risks unresolved.
-**Last updated:** 2026-07-13
+**Status:** Research complete on Binance. Hyperliquid discovery in progress.
+**Not deployed. Not ready for capital.**
+**Last updated:** 2026-07-14 (session 2)
 
 ---
 
-## 1. What we set out to do
+## THE HEADLINE
 
-Explore systematic strategies outside TSMOM. Scored ~7 candidate strategy
-families from the literature. Highest-scoring was **perpetual funding carry**
-(8.5/10) on grounds of: observable-ex-ante signal, free clean data,
-delta-neutral construction, and strong academic grounding (Koijen, Moskowitz,
-Pedersen & Vrugt, *"Carry"*, JFE 2018).
+**1. The strategy resists all improvement — nine attempts, nine rejections.**
+Not bad luck. Each failed for a *different, mechanistically coherent* reason.
+The simple config is not a local optimum we settled for. **It is the strategy.**
 
-**We did not build what we set out to build.** See §4.
+**2. Funding is dying on Binance but ALIVE on Hyperliquid.**
+Binance funding leg: +33%/yr (2020) → +5%/yr (2025). Arbitraged away.
+Hyperliquid, same assets, 3-year window: **+13% to +21%/yr**, with a **30-point
+cross-sectional spread**. And HL is the venue we intend to trade on.
 
 ---
 
-## 2. Infrastructure (done, working)
+## 1. THE STRATEGY (current best config)
 
-Shared data pipeline. Lives on the DigitalOcean droplet, read by both this
-project and the TSMOM project.
+```
+signal      : trailing 7d mean funding, cross-sectionally z-scored, LAGGED
+weights     : continuous, proportional to z, dollar-neutral, gross = 1.0
+liq tilt    : 0.25  (mild tilt toward liquid names)
+rebalance   : daily, with a 0.005 no-trade band
+vol target  : NONE  (rejected — see §3)
+exits       : NONE  (rejected — see §3)
+costs       : Corwin-Schultz spread + square-root impact, per-asset
+universe    : 26 Binance perps
+```
 
-| | |
-|---|---|
-| **Repo** | `github.com/cjessulat/crypto-data-pipeline` |
-| **Code (VPS)** | `/opt/cdp` |
-| **Data (VPS)** | `/opt/marketdata` |
-| **Code (Windows)** | `C:\Users\Chris\crypto-data-pipeline` |
-| **Cron** | 01:15 UTC daily, verified |
+**Performance ($5k capital, honest costs):**
 
-**Datasets**
+| | Sortino | Calmar | Return | MaxDD |
+|---|---|---|---|---|
+| **TRAIN 2020–24** (hostile regimes) | 1.62 | 1.32 | +32.0% | −24.3% |
+| **HOLDOUT 2025–26** (benign) | 1.36 | 1.11 | +16.3% | −14.7% |
 
-| dataset | source | cadence | coverage |
+**Plan around the holdout number (+16%), not the train number (+32%).** The
+train figure assumes a funding yield that no longer exists on Binance.
+
+**One losing year in seven.** Worst was 2022 at −0.7% — the year crypto
+collapsed, the funding leg (+22.8%) almost exactly offset a −11.7% price leg.
+The diversification working as designed.
+
+---
+
+## 2. WHAT THE STRATEGY ACTUALLY IS
+
+**Not funding carry.** We set out to build carry and accidentally built
+**short-term reversal / liquidity provision**.
+
+- **84% of P&L comes from the LONG leg** — buying hated assets
+- Profits when **cross-sectional dispersion** rises, NOT when the market crashes
+  (market return was ~0% on every one of its 10 best days)
+- Funding is a **crowding detector**, not a cash flow
+- Payoff is **episodic**: top 10 days = 130% of holdout P&L (without them it
+  loses money). Those days span 5 months and 22 assets — *lumpy*, not one event.
+
+Closest literature: **Nagel, "Evaporating Liquidity" (RFS 2012)** — you are paid
+to provide liquidity to forced sellers.
+
+**The funding leg alone:** +2.55%/yr at 0.30% vol — **Sortino 8.57.**
+Extraordinary consistency, exactly as theory predicts for a near-deterministic
+cash flow. **Far too small to trade on its own.**
+
+---
+
+## 3. NINE REJECTIONS — and why each failed
+
+| # | Intervention | Result | Why |
 |---|---|---|---|
-| `spot_klines` | Binance Vision (bulk) | 1h | 2019-09 → present |
-| `perp_klines` | Binance Vision (bulk) | 1h | 2020-01 → present |
-| `funding` | Binance REST | 8h | 2019-09 → present |
-| `metrics` (OI) | Binance Vision (bulk) | 5m | **~31 days only** |
+| 1 | Vol targeting (Moreira-Muir) | Calmar 1.97 → 0.99 | scaled the bet; Sortino sees through it |
+| 2 | Liquidity weighting (full) | Sortino 1.68 → 0.26 | removed the edge's source |
+| 3 | Dispersion sizing | Sortino +0.02 (noise) | scaled the bet |
+| 4 | Asymmetric long/short | holdout → NEGATIVE | added market beta (β 0.00 → 0.96) |
+| 5 | Profit targets / stops / time stops | Sortino halved | truncated the fat tail |
+| 6 | Funding-normalisation exits | **worst of all** | funding normalises WHEN THE RECOVERY STARTS — it sells the bounce |
+| 7 | Trailing stops | maxDD −24% → −37..−52% | sold after peak, missed continuation |
+| 8 | Vol-normalised stops | all worse | sold the bottom |
+| 9 | Blended crowding signals | **catastrophic** | see below |
 
-26 crypto perps. ~3.3M rows, ~201 MB.
+### The two deepest findings
 
-**The OI limitation is structural.** Binance retains ~31 days and nobody sells
-the history cheaply. Cron accumulates it going forward — usable in ~6 months.
-No OI-based signal can be backtested today.
+**Exits make drawdowns WORSE.** Every exit variant *increased* max drawdown
+(−24% → −37..−52%). I hypothesised this was because exits break
+dollar-neutrality, so I built a re-hedging version to test it. **Re-hedging did
+not help. My explanation was wrong.** The truth:
 
-### Bugs found and fixed (all would have silently corrupted results)
+> **In a liquidity-provision strategy, the drawdown IS the edge.** You are paid
+> precisely because most participants cannot hold through it. Any rule that
+> reduces exposure to drawdown reduces exposure to the payoff. Stops don't
+> reduce risk here — they convert temporary drawdowns into permanent losses.
 
-1. **Microsecond timestamp switchover.** Binance moved spot klines to
-   microsecond epochs on 2025-01-01; futures stayed in milliseconds. Naive
-   parsing puts 2025+ data in the year 57000, where pandas silently drops it.
-   Fixed with magnitude sniffing + a sanity gate that crashes loudly.
-2. **Parquet schema drift across 1,384 files.** `ts` was `timestamp[ms]` in
-   some partitions and `timestamp[us]` in others; `volume` was `int64` where
-   values happened to be whole numbers. Blocked all cross-partition reads.
-   Fixed by pinning explicit Arrow schemas on read and write.
-3. **Funding history destroyed on every nightly run.** ← *the dangerous one.*
-   The daily job rewrote the whole funding partition using a 2-month lookback,
-   silently deleting six years of history and reporting success. Caught only
-   because we tested the cron script before trusting it.
+**Funding is irreplaceable.** Every alternative crowding signal was not merely
+useless but *catastrophically negative*:
 
-> **The lesson from #3 is the important one.** It didn't crash. It didn't warn.
-> It deleted the data and said "done." That is the failure mode that matters in
-> systematic trading — not the error, but the silent corruption that produces a
-> beautiful, meaningless backtest.
+```
+funding only        Sortino +1.62   ret +32.0%
+taker imbalance     Sortino -2.71   ret -49.2%   maxDD -92.7%
+vol spike           Sortino -1.80   ret -48.8%   maxDD -93.5%
+price extension     Sortino -2.15   ret -71.0%   maxDD -98.1%
+```
+
+Blends degrade **monotonically** with every drop of non-funding signal added.
+
+> **Funding is a PAYMENT, not a pattern.** It is what one side is willing to
+> *pay* the other to hold a position — revealed preference with money attached.
+> Taker imbalance, volume, volatility, price extension are *activity* measures:
+> they say what happened, not what anyone will pay.
+>
+> The edge is not "find crowded assets." It is **"find assets where people are
+> paying you to take the other side."** The payment IS the edge.
 
 ---
 
-## 3. What the funding data actually says
+## 4. THE HYPERLIQUID DISCOVERY (session 2's main result)
 
-Six years, 26 assets.
+Binance funding is being competed away. Since no substitute *signal* exists
+(§3), the only option is to find the same signal **elsewhere**.
 
-**The naive carry trade is dead.**
+**Same assets, same 3-year window:**
 
-| year | mean annualised funding |
+| venue | BTC funding, annualised |
 |---|---|
-| 2021 | **+35.9%** |
-| 2022 | −3.7% |
-| 2023 | +6.1% |
-| 2024 | +11.6% |
-| 2025 | +3.1% |
-| 2026 | **+0.7%** |
+| **Hyperliquid** | **+14.51%** |
+| Bybit | +7.08% |
+| OKX | (90 days of history only — unusable) |
 
-The often-quoted "+10% funding yield" is an artifact of 2021. By 2026 the gross
-yield is ~0.7% against a ~2.4% annual cost for monthly taker rebalancing.
-**Long-spot/short-perp carry is now a guaranteed loser.** Do not build it.
-
-**But two things survived:**
-
-1. **Persistence.** Funding autocorrelation is 0.68–0.85 at one lag, still
-   0.14–0.32 a month out. Funding is *highly* forecastable — unlike price,
-   where autocorrelation is ~0. This is the necessary condition for any carry
-   strategy to have an edge.
-2. **Cross-sectional dispersion.** The *level* has been arbitraged away. The
-   *spread across assets* has not. BNB funding is habitually **negative**
-   (`pct_pos` = 25%) while LTC is habitually positive (+15%/yr). That
-   structural difference is persistent and is what we ended up harvesting.
-
----
-
-## 4. What we actually built — and what it turned out to be
-
-**Design:** rank assets by trailing 7-day mean funding. Long the low-funding
-names, short the high-funding names. Dollar-neutral. Continuous z-scored
-weights, daily rebalance, no-trade band, 15% vol target, 5bps taker.
-
-**We set out to build funding carry. We accidentally built short-term reversal.**
-
-Funding is not functioning as a cash flow here. It's functioning as a
-**crowding detector**. Deeply negative funding means the market has given up on
-an asset. You buy it, and the money is made on the *bounce* — not the coupon.
-
-This is very close to Nagel, *"Evaporating Liquidity"* (RFS 2012): you are
-being paid to provide liquidity to forced sellers. That was idea #3 on the
-original list, scored 7/10.
-
-### Results (holdout, 2025-01 → 2026-06, never tuned on)
+**HL pays 2x Bybit.** Across the universe:
 
 ```
-                 sharpe   return    vol    maxdd
-TRAIN (seen)      1.27    +20.8%   16.3%   -20.9%
-HOLDOUT (unseen)  2.45    +39.9%   16.3%    -7.3%
+NEAR  +21.4%      ATOM   -2.2%
+DOGE  +17.5%      BCH    -1.7%
+AAVE  +17.0%      XLM    -0.5%
+LINK  +16.0%      TRX    +2.1%
+FIL   +15.9%      CRV    +2.5%
+BTC   +14.6%      ICP    -8.9%
 ```
 
-**P&L decomposition (holdout):**
+**A 30-point cross-sectional spread, with genuinely negative-funding names to
+buy.** Binance in 2026: everything compressed to within basis points of zero.
+**The cross-section we need is alive on HL and dead on Binance.**
 
-```
-price leg    +37.30%   <- 94% of P&L. This IS the strategy.
-funding leg   +6.01%   <-  6%. Nice, but not the point.
-```
+Mechanism: HL is newer, retail-heavier, fewer institutional arbitrageurs. The
+premium survives because the competition has not arrived.
 
-**The funding leg in isolation:** +2.55%/yr net of cost, at 0.30% vol —
-**Sharpe 8.57.** Extraordinary consistency, and exactly what theory predicts
-for a near-deterministic cash flow. But **+2.55%/yr is far too small to run a
-business on**, and levering a short-vol trade is how people get liquidated.
+### THE BLOCKER
 
-### Robustness
-
-| test | result | verdict |
+| | Hyperliquid | Binance |
 |---|---|---|
-| Lookahead (340k weights, causal rebuild) | **0 differences** | clean |
-| Drop 10 best days | Sharpe 2.54 → 1.56 (61% retained) | concentrated, survives |
-| Leave-one-out (26 symbols) | worst case Sharpe 2.00 (81% of base) | **robust** |
-| Parameter surface | flat, 0.65–1.05 across 3d–30d | not overfit |
-| Every year 2020–2026 | funding leg **positive in all 7** | real mechanism |
+| Funding | 2023-05 → now ✓ | 2019-09 → now ✓ |
+| **Prices** | **2025-12 → now** ✗ | 2019-09 → now ✓ |
 
-**Attribution:** top 3 symbols (SNX, THETA, XLM) = 61% of holdout P&L. All
-mid-cap, high-beta, beaten-down alts. In every one, the price leg is 15–40x the
-funding leg.
+**HL's API retains only ~5,000 candles (~7 months).** Verified directly:
+requests for 2024-01, 2024-07, 2025-01, 2025-07 all return **zero bars**.
+A native HL backtest is impossible today.
 
----
+### THE URGENT ACTION — taken
 
-## 5. Errors made (documented so they aren't repeated)
-
-**5.1 — I scored carry 8.5/10 and it was wrong.** The arbitrage-compression
-criticism I listed as a "primary criticism" turned out to be the whole story.
-Should have checked the yield trend before scoring, not after.
-
-**5.2 — Every pre-registered lever made it worse.**
-
-```
-config                              sharpe   return   turnover
-v1 base (hourly, no band, no vol)    1.79    +48.1%     93.9
-+ daily rebalance                    1.72    +45.7%     73.0
-+ no-trade band                      1.70    +45.0%     67.1
-+ vol target (FULL v2)               1.27    +20.7%     48.5
-```
-
-I pre-registered a bundle of cost-reduction levers on the theory that costs
-were killing the strategy. On the 10-asset universe they were (−6.7%/yr). On
-the 26-asset universe they never were (−3.4%). **I carried an assumption from
-the small-universe result into the large-universe world without rechecking it.**
-The Sharpe improvement from v1 → v2 came *entirely* from expanding the universe.
-The levers I added actively hurt.
-
-**5.3 — Reported v2 as though the levers earned the improvement.** They didn't.
-Corrected once the ablation was visible.
-
-**5.4 — Predicted the holdout would degrade. It nearly doubled (1.27 → 2.45).**
-Being wrong in this direction is the more dangerous one; it prompts the check
-below.
+**HL price data is PERISHABLE and cannot be backfilled.** `cdp.hl_daily` is now
+in cron. Every day it does not run is a day of data permanently lost. In ~12
+months this yields a native HL dataset.
 
 ---
 
-## 6. Open risks — none resolved
+## 5. WHAT I GOT WRONG (so it is not repeated)
 
-Ordered by how likely they are to kill the strategy.
+**5.1** Scored carry 8.5/10 without checking the yield trend. The
+arbitrage-compression criticism I listed as a footnote *was the whole story*.
 
-### 6.1 Survivorship bias — **the most dangerous**
-**MATIC, FTM, EOS and MKR were all major perps. All now delisted.** That is 4 of
-a 45-name hand-picked list (~9%), and there are certainly more we never thought
-to name.
+**5.2** Pre-registered cost-reduction levers on the theory costs were killing
+the strategy. On the 26-asset universe **they never were**. Carried an
+assumption from the 10-asset world without rechecking. The v1→v2 improvement
+came *entirely* from expanding the universe; my levers actively hurt.
 
-This matters *disproportionately* here because **the strategy's edge is buying
-beaten-down altcoins.** The beaten-down alts that kept falling and died are not
-in the dataset. We are testing "buy the dip" on a universe from which the dips
-that never recovered have been removed.
+**5.3** Predicted the holdout would degrade. It nearly *doubled* — an artifact
+of the fake 5bps cost model. Under honest costs it degrades properly
+(+32% → +16%), which is the healthy result.
 
-**Every number in §4 is an optimistic upper bound.** This could be fatal and it
-has not been quantified.
+**5.4** Let a 5bps flat cost model stand for three sessions. Wrong by **4–8x**,
+and wrong in the worst way: it most understated the cost of exactly the thin
+names (SNX 39bps, THETA 35bps, CRV 33bps) where the strategy makes its money.
 
-### 6.2 The cost model is not credible
-5bps flat, no slippage, no market impact — applied to SNX, THETA, ICP, CRV.
-These are thin books. The un-levered config that "wins" the ablation has **94x
-annual turnover**, and it wins precisely because the cost model flatters it most.
-No conclusion about optimal turnover can be drawn until this is fixed.
+**5.5** Predicted "size DOWN in dead periods" beats "size UP into episodes."
+Backwards. Quiet periods are not dead weight.
 
-### 6.3 Regime dependence — untested
-The holdout (2025–26) was choppy and mean-reverting for altcoins — the *exact*
-regime a contrarian strategy needs. Sharpe 2.45 may be regime luck. In a
-sustained altcoin downtrend, this strategy bleeds. **We have not tested a
-hostile regime because the holdout didn't contain one.**
+**5.6** Explained the exit failures as "exits break the hedge." **Built a
+re-hedging test that disproved my own explanation.** The truth is deeper: the
+drawdown *is* the edge.
 
 ---
 
-## 7. The honest summary
+## 6. OPEN RISKS
 
-There is a **real, mechanically-grounded, persistent funding edge**: +2.55%/yr
-at Sharpe 8.57, positive in every year since 2020. It is too small to trade on
-its own.
+### 6.1 Survivorship bias — RESOLVED (was the top risk)
+Distressed positions contribute **−2% of P&L**, not +40%. Excluding them makes
+the strategy *better* (Sortino 3.54 → 3.77). **Mildly deflating, not inflating.**
+The lottery-winner hypothesis is dead.
 
-Wrapped around it is a **contrarian altcoin strategy** that produced Sharpe 2.45
-out of sample and survived every robustness test we threw at it — but whose
-edge is concentrated in illiquid names, whose costs are not credibly modelled,
-and which has only been tested in a regime that suits it.
+### 6.2 Capacity ceiling — QUANTIFIED, and LOW
 
-**It is not ready for capital.** The next honest step is to attack §6.1 — if
-survivorship bias accounts for most of the price leg, there is no strategy here,
-only a story about the coins that happened to survive.
+| capital | Sortino | return |
+|---|---|---|
+| $5k | 1.68 | +31.8% |
+| $10k | 1.61 | +30.5% |
+| $100k | 1.12 | +21.4% |
+| $1m | likely negative | — |
+
+Full liquidity-tilting **destroys** the edge (Sortino 1.68 → 0.26), proving the
+ceiling is structural. **Small capital is a feature, not a limitation.**
+Target: **under $10k.**
+
+### 6.3 Fragility — REAL
+Top 10 days = **130%** of holdout P&L. Expect **long flat stretches** punctuated
+by violent gains. Psychologically hard to hold.
+
+### 6.4 The edge is decaying — the existential risk
+Funding leg: +33% → +5% over six years on Binance. §3 proves nothing replaces
+it. **This strategy has a shelf life.** Hyperliquid may extend it — but the same
+arbitrageurs will eventually arrive there too.
+
+### 6.5 Regime dependence — UNTESTED
+Holdout (2025–26) was choppy and mean-reverting: the ideal regime for a
+contrarian book. Full-sample Calmar (1.20) vs holdout Calmar (5.43) — **that 4.5x
+gap IS the regime effect.**
 
 ---
 
-## 8. Next steps (in order)
+## 7. NEXT STEPS
 
-1. **Quantify survivorship bias.** Rebuild the universe point-in-time, including
-   delisted names. Data for dead perps is hard to get — this is the main
-   obstacle. Without it, no result here can be trusted.
-2. **Build a credible cost model.** Volume- and spread-aware, per-asset. Kill
-   the 5bps flat assumption.
-3. **Test a hostile regime.** Specifically: sustained altcoin downtrend.
-4. **Only then** revisit whether this is a sleeve worth deploying.
+**PRIORITY 1 — running**
+HL nightly collector in cron. Perishable. Cannot be backfilled.
+
+**PRIORITY 2 — the main open question**
+Test the strategy on **HL funding + Binance prices**. A *proxy* backtest: it
+tests whether the HL funding *signal* has predictive power. It does NOT tell us
+HL *execution* costs — HL liquidity is thinner than Binance's.
+
+**Key unknown: HL settles funding HOURLY** (24×/day vs Binance's 3×). Higher
+frequency may *smooth* rates and collapse the cross-sectional dispersion we need,
+even though the *averages* look dispersed.
+**High average funding ≠ better strategy. The edge is dispersion, not level.**
+
+**PRIORITY 3 — validation**
+Reservoir (free S3, HL data from 2025-08) gives more HL history than the API.
+Cross-check the proxy backtest against it.
+
+**PRIORITY 4 — practical blockers before live capital**
+- Minimum order sizes ($5k / 26 assets ≈ $190/position — check HL minimums)
+- Build the paper trader; run it with no money for months
+- Verify HL execution costs empirically
 
 ---
 
 ## Appendix — code
 
-All in `/opt/cdp/src/cdp/`:
+`/opt/cdp/src/cdp/` — committed to `github.com/cjessulat/crypto-data-pipeline`
 
-| module | purpose |
-|---|---|
-| `config.py` | universe, paths, dataset definitions |
-| `binance_vision.py` | bulk downloader (checksums, timestamp normalisation) |
-| `funding.py` | funding REST downloader |
-| `store.py` | parquet store — **the only public read interface** |
-| `ingest.py` | the CLI you actually run |
-| `quality.py` | data-quality checks — **run before every backtest** |
-| `repair.py` | one-off schema repair |
-| `funding_econ.py` | descriptive funding economics |
-| `xs_funding.py` | v1 strategy + backtest engine |
-| `xs_v2.py` | v2 (continuous weights, band, vol target) |
-| `forensics.py` | attribution, leave-one-out, drop-best-days |
-| `holdout.py` | the one-shot holdout test |
-| `leak_test.py` | causal-rebuild lookahead check |
-| `holdout_forensics.py` | forensics on the holdout |
+**Pipeline:** `config` `binance_vision` `funding` `store` `ingest` `quality`
+`repair` `venues` `hl_backfill` `hl_daily`
 
-**Backtest engine was validated against synthetic ground truth**: recovered
-+32.64% against a known +32.85%, gross exposure 1.00, net exposure 0.000.
-Noise floor on the price leg measured at **±7%** — any price-leg result inside
-that band is indistinguishable from luck.
+**Research:** `funding_econ` `xs_funding` `xs_v2` `forensics` `holdout`
+`leak_test` `holdout_forensics` `survivorship` `costs` `rerun_real_costs`
+`liq_weight` `dispersion` `disp_sizing` `asym` `exits` `exit_funding`
+`exit_trail` `exit_volstop` `blend`
+
+**Validation performed:**
+- Backtest engine recovered **+32.64%** against a known synthetic truth of
+  **+32.85%**; gross exposure 1.00, net 0.000
+- Lookahead check: **340,704 weights rebuilt causally — ZERO differences**
+- Price-leg noise floor measured at **±7%**; any price-leg result inside that
+  band is indistinguishable from luck
